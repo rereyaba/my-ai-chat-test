@@ -170,7 +170,7 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 13px; color: var(--text-dim); overflow: hidden;
   }
-  .msg-col { display: flex; flex-direction: column; min-width: 0; }
+  .msg-col { display: flex; flex-direction: column; min-width: 0; flex: 1; }
   .msg-row.user-row .msg-col { align-items: flex-end; }
 
   /* Message action buttons */
@@ -381,6 +381,11 @@
   <h2>使用量・料金</h2>
   <p class="sub">この部屋の累計です。Google公式の請求額とは別集計の目安です。</p>
 
+  <div class="field" style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px 14px;">
+    <label style="margin:0;">料金表示を隠す（全部屋共通）</label>
+    <input type="checkbox" id="hideCostToggle" style="width:20px; height:20px;">
+  </div>
+
   <div class="usage-card">
     <div class="usage-row"><span class="label">送信回数</span><span class="value" id="msgCount">0回</span></div>
     <div class="usage-row"><span class="label">入力トークン(推定)</span><span class="value" id="inTokens">0</span></div>
@@ -401,6 +406,9 @@
   <div class="btn-row">
     <button class="btn btn-secondary" id="closeUsage">閉じる</button>
     <button class="btn btn-danger" id="resetUsageBtn">この部屋の使用量をリセット</button>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-danger" id="clearMessagesBtn">この部屋の会話を全削除（設定は残る）</button>
   </div>
 </div>
 
@@ -452,7 +460,8 @@ const THEME_COLORS = [
 
 let store = {
   apiKey: '',
-  jpyRate: 150,
+  jpyRate: 159,
+  hideCost: false,
   activeRoomId: null,
   rooms: []
 };
@@ -825,7 +834,31 @@ deleteRoomBtn.addEventListener('click', () => {
 // --- Usage panel ---
 usageBtn.addEventListener('click', () => { renderUsagePanel(); openPanel(usagePanel); });
 
+const hideCostToggle = document.getElementById('hideCostToggle');
+const clearMessagesBtn = document.getElementById('clearMessagesBtn');
+
+hideCostToggle.addEventListener('change', () => {
+  store.hideCost = hideCostToggle.checked;
+  saveStore();
+  renderRoom();
+});
+
+clearMessagesBtn.addEventListener('click', () => {
+  const room = getActiveRoom();
+  if (!room) return;
+  if (room.messages.length === 0) {
+    alert('この部屋にはまだ会話がありません。');
+    return;
+  }
+  if (!confirm('この部屋の会話を全て削除します。カスタム指示・アイコン・使用量の累計は残ります。よろしいですか？')) return;
+  room.messages = [];
+  saveStore();
+  closeAllPanels();
+  renderRoom();
+});
+
 function renderUsagePanel() {
+  hideCostToggle.checked = !!store.hideCost;
   const room = getActiveRoom();
   if (!room) return;
   const u = room.usage;
@@ -858,22 +891,42 @@ exportBtn.addEventListener('click', () => {
     alert('この部屋にはまだ会話がありません。');
     return;
   }
-  let out = `# ${room.name}\n`;
-  out += `モデル: ${room.apiModel}\n`;
-  out += `書き出し日時: ${new Date().toLocaleString('ja-JP')}\n`;
-  out += `----------------------------------------\n\n`;
+
+  const escapeForHtml = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  let bodyHtml = '';
   room.messages.forEach(m => {
-    const speaker = m.role === 'user' ? 'あなた' : 'AI';
-    out += `【${speaker}】\n${m.text}\n\n`;
+    const speaker = m.role === 'user' ? 'あなた' : room.name;
+    const cls = m.role === 'user' ? 'user' : 'ai';
+    bodyHtml += `<div class="log-msg ${cls}"><div class="log-speaker">${escapeForHtml(speaker)}</div><div class="log-text">${escapeForHtml(m.text)}</div></div>\n`;
   });
 
-  const blob = new Blob([out], { type: 'text/plain;charset=utf-8' });
+  const fullHtml = `<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${escapeForHtml(room.name)} - 会話ログ</title>
+<style>
+  body { margin:0; padding:16px; background:#16181d; color:#e8e9ed; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .meta { font-size:12px; color:#8b8f9a; margin-bottom:20px; }
+  .log-msg { max-width:85%; margin-bottom:14px; padding:10px 14px; border-radius:14px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
+  .log-msg.user { background:#2c3e6b; margin-left:auto; }
+  .log-msg.ai { background:#262a33; }
+  .log-speaker { font-size:11px; color:#8b8f9a; margin-bottom:4px; }
+</style></head>
+<body>
+<h1>${escapeForHtml(room.name)}</h1>
+<div class="meta">モデル: ${escapeForHtml(room.apiModel)} ／ 書き出し日時: ${new Date().toLocaleString('ja-JP')}</div>
+${bodyHtml}
+</body></html>`;
+
+  const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const safeName = room.name.replace(/[\\/:*?"<>|]/g, '_');
   const dateStr = new Date().toISOString().slice(0,10);
   a.href = url;
-  a.download = `${safeName}_${dateStr}.txt`;
+  a.download = `${safeName}_${dateStr}.html`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -924,23 +977,13 @@ function buildMessageRow(room, m, idx) {
   const row = document.createElement('div');
   row.className = 'msg-row ' + (m.role === 'user' ? 'user-row' : 'ai-row');
 
-  const avatar = document.createElement('div');
-  avatar.className = 'avatar';
-  if (m.role === 'user') {
-    avatar.textContent = '🙂';
-  } else {
-    const style = avatarStyleFor(room);
-    if (style) { avatar.setAttribute('style', style); }
-    else { avatar.textContent = '🤖'; }
-  }
-
   const col = document.createElement('div');
   col.className = 'msg-col';
 
   const bubble = document.createElement('div');
   bubble.className = 'msg ' + (m.role === 'user' ? 'user' : 'ai');
   bubble.textContent = m.text;
-  if (m.role !== 'user' && m.cost) {
+  if (m.role !== 'user' && m.cost && !store.hideCost) {
     const tag = document.createElement('span');
     tag.className = 'cost-tag';
     tag.textContent = `¥${m.cost.jpy.toFixed(1)}`;
@@ -963,6 +1006,13 @@ function buildMessageRow(room, m, idx) {
   actions.appendChild(delBtn);
 
   if (m.role !== 'user') {
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    const style = avatarStyleFor(room);
+    if (style) { avatar.setAttribute('style', style); }
+    else { avatar.textContent = '🤖'; }
+    row.appendChild(avatar);
+
     const regenBtn = document.createElement('button');
     regenBtn.className = 'msg-action-btn';
     regenBtn.textContent = '🔄再生成';
@@ -971,7 +1021,6 @@ function buildMessageRow(room, m, idx) {
   }
 
   col.appendChild(actions);
-  row.appendChild(avatar);
   row.appendChild(col);
   return row;
 }
