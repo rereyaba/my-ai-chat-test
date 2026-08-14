@@ -346,6 +346,17 @@
   </div>
 
   <div class="field">
+    <label>温度（キャラの安定性）</label>
+    <select id="temperatureSelect">
+      <option value="0.3">低め（0.3）— キャラが崩れにくい、表現は控えめ</option>
+      <option value="0.6" selected>やや低め（0.6）— 安定重視</option>
+      <option value="0.9">標準（0.9）— バランス型</option>
+      <option value="1.1">高め（1.1）— 表現は豊か、崩れやすい</option>
+    </select>
+    <div class="hint">キャラ崩壊が気になる場合は「低め」がおすすめです。</div>
+  </div>
+
+  <div class="field">
     <label>1ドルあたりの円換算レート</label>
     <input type="number" id="jpyRate" value="159" step="1">
     <div class="hint">為替は変動するので、あくまで目安です。</div>
@@ -427,6 +438,7 @@ function newRoom(name) {
     id: 'room_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
     name: name || '新しい部屋',
     apiModel: 'gemini-3.1-pro-preview',
+    temperature: 0.6,
     // 新形式：3カテゴリのブロック配列。互換のため systemPrompt(旧・単一文字列)も残す
     promptBlocks: { rule: [''], world: [''], char: [''] },
     systemPrompt: '',
@@ -486,6 +498,7 @@ function loadStore() {
       r.promptBlocks = { rule: [''], world: [''], char: [r.systemPrompt || ''] };
     }
     if (!r.theme) r.theme = 'blue';
+    if (r.temperature === undefined) r.temperature = 0.6;
     if (r.avatar === undefined) r.avatar = null;
     r.messages.forEach(m => { if (!m.id) m.id = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); });
   });
@@ -526,6 +539,7 @@ const roomNameInput = document.getElementById('roomNameInput');
 const apiKeyInput = document.getElementById('apiKey');
 const modelSelect = document.getElementById('modelSelect');
 const historyLimitSelect = document.getElementById('historyLimit');
+const temperatureSelect = document.getElementById('temperatureSelect');
 const jpyRateInput = document.getElementById('jpyRate');
 const charCount = document.getElementById('charCount');
 const togglePw = document.getElementById('togglePw');
@@ -615,6 +629,7 @@ settingsBtn.addEventListener('click', () => {
   apiKeyInput.value = store.apiKey;
   modelSelect.value = room.apiModel;
   historyLimitSelect.value = String(room.historyLimit);
+  temperatureSelect.value = String(room.temperature !== undefined ? room.temperature : 0.6);
   jpyRateInput.value = store.jpyRate;
 
   // 編集用の一時データにコピー（キャンセルしたら破棄される）
@@ -727,6 +742,7 @@ saveSettingsBtn.addEventListener('click', () => {
   };
   room.systemPrompt = buildCombinedPrompt(room); // 互換用
   room.historyLimit = parseInt(historyLimitSelect.value, 10);
+  room.temperature = parseFloat(temperatureSelect.value);
   room.avatar = editingAvatar;
   room.theme = editingTheme;
   store.apiKey = apiKeyInput.value.trim();
@@ -1182,7 +1198,10 @@ async function callGeminiAPI(room) {
     contents,
     systemInstruction: combinedPrompt
       ? { parts: [{ text: combinedPrompt }] }
-      : undefined
+      : undefined,
+    generationConfig: {
+      temperature: room.temperature !== undefined ? room.temperature : 0.6
+    }
   };
 
   const res = await fetch(url, {
