@@ -19,6 +19,13 @@
     --danger: #d97878;
     --radius: 14px;
   }
+  /* テーマカラー候補（部屋ごとに --accent / --user-bubble / --accent-dim を上書きする） */
+  .theme-blue   { --accent: #7c9eff; --accent-dim: #4a5a8a; --user-bubble: #2c3e6b; }
+  .theme-pink   { --accent: #f28fb0; --accent-dim: #8a4a5e; --user-bubble: #5e2c3e; }
+  .theme-purple { --accent: #b48cf2; --accent-dim: #5e4a8a; --user-bubble: #3e2c5e; }
+  .theme-green  { --accent: #7fd4a0; --accent-dim: #3f6b52; --user-bubble: #1f3d2c; }
+  .theme-orange { --accent: #f2a35c; --accent-dim: #8a5e30; --user-bubble: #5e3c1f; }
+  .theme-red    { --accent: #f27c7c; --accent-dim: #8a4444; --user-bubble: #5e2828; }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0; height: 100%;
@@ -151,9 +158,80 @@
   .usage-row.total .value { color: var(--accent); font-size: 18px; }
   .usage-jpy { font-size: 12px; color: var(--text-dim); }
   .rate-note { font-size: 11px; color: var(--text-dim); line-height: 1.6; margin-top: 4px; }
+
+  /* Avatar */
+  .msg-row { display: flex; gap: 8px; max-width: 92%; }
+  .msg-row.user-row { align-self: flex-end; flex-direction: row-reverse; }
+  .msg-row.ai-row { align-self: flex-start; }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+    background: var(--bg-input); border: 1px solid var(--border);
+    background-size: cover; background-position: center;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: var(--text-dim); overflow: hidden;
+  }
+  .msg-col { display: flex; flex-direction: column; min-width: 0; }
+  .msg-row.user-row .msg-col { align-items: flex-end; }
+
+  /* Message action buttons */
+  .msg-actions { display: flex; gap: 10px; margin-top: 4px; font-size: 11px; }
+  .msg-action-btn {
+    background: none; border: none; color: var(--text-dim);
+    font-size: 11px; cursor: pointer; padding: 2px 4px;
+  }
+  .msg-action-btn:active { color: var(--accent); }
+
+  /* Avatar editor modal */
+  .avatar-modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; z-index: 20; align-items: center; justify-content: center;
+  }
+  .avatar-modal-bg.open { display: flex; }
+  .avatar-modal {
+    background: var(--bg-panel); border-radius: 16px; padding: 20px;
+    width: 88%; max-width: 380px;
+  }
+  .avatar-modal h3 { margin: 0 0 14px; font-size: 15px; }
+  .avatar-crop-viewport {
+    width: 220px; height: 220px; margin: 0 auto 14px;
+    border-radius: 50%; overflow: hidden; position: relative;
+    background: var(--bg-input); border: 2px solid var(--border);
+    touch-action: none;
+  }
+  .avatar-crop-viewport img {
+    position: absolute; max-width: none; user-select: none; -webkit-user-drag: none;
+  }
+  .avatar-modal input[type="range"] { width: 100%; margin: 8px 0 16px; }
+  .avatar-modal .hint-small { font-size: 11px; color: var(--text-dim); text-align: center; margin-bottom: 12px; }
+
+  /* Theme color picker */
+  .color-swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .color-swatch {
+    width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent;
+  }
+  .color-swatch.selected { border-color: var(--text); }
+
+  /* Prompt section blocks */
+  .prompt-section { margin-bottom: 16px; }
+  .prompt-section-title { font-size: 12px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .prompt-block { margin-bottom: 8px; position: relative; }
+  .prompt-block textarea {
+    width: 100%; min-height: 90px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 34px 10px 12px; color: var(--text); font-size: 13px;
+    font-family: inherit; line-height: 1.5; resize: vertical;
+  }
+  .prompt-block-remove {
+    position: absolute; top: 8px; right: 8px; background: none; border: none;
+    color: var(--text-dim); font-size: 16px; cursor: pointer; line-height: 1;
+  }
+  .add-block-btn {
+    width: 100%; padding: 8px; border-radius: 8px; border: 1px dashed var(--border);
+    background: none; color: var(--accent); font-size: 12px; cursor: pointer;
+  }
 </style>
 </head>
-<body>
+<body class="theme-blue">
 <div id="app">
   <header>
     <div class="header-left">
@@ -194,11 +272,25 @@
 <!-- 設定(部屋ごとの内容) -->
 <div class="panel" id="settings">
   <h2>この部屋の設定</h2>
-  <p class="sub">APIキーは全部屋共通です。カスタム指示はこの部屋だけに保存されます。</p>
+  <p class="sub">APIキーは全部屋共通です。それ以外はこの部屋だけに保存されます。</p>
 
   <div class="field">
     <label>部屋の名前</label>
     <input type="text" id="roomNameInput" placeholder="例: 個人会話用">
+  </div>
+
+  <div class="field">
+    <label>相手のアイコン</label>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <div class="avatar" id="avatarPreview" style="width:56px;height:56px;font-size:20px;"></div>
+      <button class="btn btn-secondary" id="editAvatarBtn" style="flex:0 0 auto; padding: 10px 16px;">画像を選ぶ</button>
+    </div>
+    <input type="file" id="avatarFileInput" accept="image/*" style="display:none;">
+  </div>
+
+  <div class="field">
+    <label>部屋のテーマカラー</label>
+    <div class="color-swatches" id="colorSwatches"></div>
   </div>
 
   <div class="field">
@@ -218,9 +310,28 @@
   </div>
 
   <div class="field">
-    <label>カスタム指示（この部屋専用）</label>
-    <textarea id="systemPrompt" placeholder="この部屋だけのルール・キャラ設定・あらすじなどを自由に書いてください。"></textarea>
-    <div class="char-count" id="charCount">0文字</div>
+    <label style="margin-bottom:2px;">カスタム指示（この部屋専用）</label>
+    <div class="hint" style="margin-bottom:10px;">3つに分けて書けます。それぞれ「＋追加」で複数ブロックにできます。保存時に1つにまとめて送信されます。</div>
+
+    <div class="prompt-section">
+      <div class="prompt-section-title">■ ルール</div>
+      <div id="blocksRule"></div>
+      <button class="add-block-btn" data-target="rule">＋ ルールを追加</button>
+    </div>
+
+    <div class="prompt-section">
+      <div class="prompt-section-title">■ 世界観設定</div>
+      <div id="blocksWorld"></div>
+      <button class="add-block-btn" data-target="world">＋ 世界観を追加</button>
+    </div>
+
+    <div class="prompt-section">
+      <div class="prompt-section-title">■ キャラ設定</div>
+      <div id="blocksChar"></div>
+      <button class="add-block-btn" data-target="char">＋ キャラを追加</button>
+    </div>
+
+    <div class="char-count" id="charCount">合計 0文字</div>
     <div class="hint">毎回ほぼ同じ内容にしておくと、Gemini側のキャッシュが効きやすく、料金が安くなりやすいです（自動判定・操作不要）。</div>
   </div>
 
@@ -236,7 +347,7 @@
 
   <div class="field">
     <label>1ドルあたりの円換算レート</label>
-    <input type="number" id="jpyRate" value="150" step="1">
+    <input type="number" id="jpyRate" value="159" step="1">
     <div class="hint">為替は変動するので、あくまで目安です。</div>
   </div>
 
@@ -246,6 +357,22 @@
   </div>
   <div class="btn-row">
     <button class="btn btn-danger" id="deleteRoomBtn">この部屋を削除</button>
+  </div>
+</div>
+
+<!-- アイコン編集モーダル -->
+<div class="avatar-modal-bg" id="avatarModalBg">
+  <div class="avatar-modal">
+    <h3>アイコンを調整</h3>
+    <div class="avatar-crop-viewport" id="cropViewport">
+      <img id="cropImg" src="" alt="">
+    </div>
+    <div class="hint-small">ドラッグで位置調整、スライダーで拡大縮小</div>
+    <input type="range" id="zoomRange" min="100" max="300" value="100">
+    <div class="btn-row" style="margin-top:0;">
+      <button class="btn btn-secondary" id="cancelAvatarBtn">キャンセル</button>
+      <button class="btn btn-primary" id="confirmAvatarBtn">決定</button>
+    </div>
   </div>
 </div>
 
@@ -292,12 +419,36 @@ function newRoom(name) {
     id: 'room_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
     name: name || '新しい部屋',
     apiModel: 'gemini-3.1-pro-preview',
+    // 新形式：3カテゴリのブロック配列。互換のため systemPrompt(旧・単一文字列)も残す
+    promptBlocks: { rule: [''], world: [''], char: [''] },
     systemPrompt: '',
     historyLimit: 10,
-    messages: [], // {role, text, cost?}
+    theme: 'blue',
+    avatar: null, // { src: dataURL, offsetX, offsetY, zoom }
+    messages: [], // {id, role, text, cost?}
     usage: { msgCount: 0, inTokens: 0, outTokens: 0, totalUsd: 0 }
   };
 }
+
+function buildCombinedPrompt(room) {
+  const parts = [];
+  const rule = (room.promptBlocks?.rule || []).filter(t => t && t.trim());
+  const world = (room.promptBlocks?.world || []).filter(t => t && t.trim());
+  const char = (room.promptBlocks?.char || []).filter(t => t && t.trim());
+  if (rule.length) parts.push('【ルール】\n' + rule.join('\n\n'));
+  if (world.length) parts.push('【世界観設定】\n' + world.join('\n\n'));
+  if (char.length) parts.push('【キャラ設定】\n' + char.join('\n\n'));
+  return parts.join('\n\n');
+}
+
+const THEME_COLORS = [
+  { key: 'blue', hex: '#7c9eff' },
+  { key: 'pink', hex: '#f28fb0' },
+  { key: 'purple', hex: '#b48cf2' },
+  { key: 'green', hex: '#7fd4a0' },
+  { key: 'orange', hex: '#f2a35c' },
+  { key: 'red', hex: '#f27c7c' }
+];
 
 let store = {
   apiKey: '',
@@ -320,6 +471,15 @@ function loadStore() {
   if (!store.activeRoomId || !store.rooms.find(r => r.id === store.activeRoomId)) {
     store.activeRoomId = store.rooms[0].id;
   }
+  // マイグレーション：旧データに欠けているフィールドを補う
+  store.rooms.forEach(r => {
+    if (!r.promptBlocks) {
+      r.promptBlocks = { rule: [''], world: [''], char: [r.systemPrompt || ''] };
+    }
+    if (!r.theme) r.theme = 'blue';
+    if (r.avatar === undefined) r.avatar = null;
+    r.messages.forEach(m => { if (!m.id) m.id = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); });
+  });
 }
 function saveStore() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }
@@ -356,7 +516,6 @@ const roomList = document.getElementById('roomList');
 const roomNameInput = document.getElementById('roomNameInput');
 const apiKeyInput = document.getElementById('apiKey');
 const modelSelect = document.getElementById('modelSelect');
-const systemPromptInput = document.getElementById('systemPrompt');
 const historyLimitSelect = document.getElementById('historyLimit');
 const jpyRateInput = document.getElementById('jpyRate');
 const charCount = document.getElementById('charCount');
@@ -364,6 +523,18 @@ const togglePw = document.getElementById('togglePw');
 const saveSettingsBtn = document.getElementById('saveSettings');
 const deleteRoomBtn = document.getElementById('deleteRoomBtn');
 const resetUsageBtn = document.getElementById('resetUsageBtn');
+const avatarPreview = document.getElementById('avatarPreview');
+const editAvatarBtn = document.getElementById('editAvatarBtn');
+const avatarFileInput = document.getElementById('avatarFileInput');
+const colorSwatches = document.getElementById('colorSwatches');
+const blocksRuleEl = document.getElementById('blocksRule');
+const blocksWorldEl = document.getElementById('blocksWorld');
+const blocksCharEl = document.getElementById('blocksChar');
+
+// 編集中の一時データ（保存を押すまでは room に反映しない）
+let editingBlocks = { rule: [''], world: [''], char: [''] };
+let editingAvatar = null;
+let editingTheme = 'blue';
 
 function openPanel(p) { overlay.classList.add('open'); p.classList.add('open'); }
 function closeAllPanels() {
@@ -386,9 +557,15 @@ function renderRoomList() {
     const card = document.createElement('div');
     card.className = 'room-card' + (r.id === store.activeRoomId ? ' active' : '');
     const msgN = r.messages.length;
+    const avatarHtml = r.avatar && r.avatar.src
+      ? `<div class="avatar" style="width:28px;height:28px;${avatarStyleFor(r)}"></div>`
+      : `<div class="avatar" style="width:28px;height:28px;">🤖</div>`;
     card.innerHTML = `
       <div class="room-card-top">
-        <span class="room-name">${escapeHtml(r.name)}</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          ${avatarHtml}
+          <span class="room-name">${escapeHtml(r.name)}</span>
+        </div>
       </div>
       <div class="room-meta">${msgN}件のメッセージ ・ ¥${((r.usage.totalUsd||0)*store.jpyRate).toFixed(0)}</div>
     `;
@@ -428,9 +605,21 @@ settingsBtn.addEventListener('click', () => {
   roomNameInput.value = room.name;
   apiKeyInput.value = store.apiKey;
   modelSelect.value = room.apiModel;
-  systemPromptInput.value = room.systemPrompt;
   historyLimitSelect.value = String(room.historyLimit);
   jpyRateInput.value = store.jpyRate;
+
+  // 編集用の一時データにコピー（キャンセルしたら破棄される）
+  editingBlocks = {
+    rule: room.promptBlocks.rule.length ? [...room.promptBlocks.rule] : [''],
+    world: room.promptBlocks.world.length ? [...room.promptBlocks.world] : [''],
+    char: room.promptBlocks.char.length ? [...room.promptBlocks.char] : ['']
+  };
+  editingAvatar = room.avatar ? { ...room.avatar } : null;
+  editingTheme = room.theme || 'blue';
+
+  renderBlockEditors();
+  renderAvatarPreview();
+  renderColorSwatches();
   updateCharCount();
   openPanel(settingsPanel);
 });
@@ -440,22 +629,183 @@ togglePw.addEventListener('click', () => {
   else { apiKeyInput.type = 'password'; togglePw.textContent = '表示する'; }
 });
 
-systemPromptInput.addEventListener('input', updateCharCount);
-function updateCharCount() { charCount.textContent = systemPromptInput.value.length + '文字'; }
+function updateCharCount() {
+  const total = ['rule', 'world', 'char'].reduce((sum, key) =>
+    sum + editingBlocks[key].reduce((s, t) => s + (t ? t.length : 0), 0), 0);
+  charCount.textContent = '合計 ' + total + '文字';
+}
+
+function renderBlockEditors() {
+  const containers = { rule: blocksRuleEl, world: blocksWorldEl, char: blocksCharEl };
+  const placeholders = {
+    rule: '例：一人称は「私」。敬語は使わない。',
+    world: '例：舞台は近未来の東京。魔法は存在しない。',
+    char: '例：キャラA：冷静沈着、金髪、剣士。'
+  };
+  Object.keys(containers).forEach(key => {
+    const el = containers[key];
+    el.innerHTML = '';
+    editingBlocks[key].forEach((text, idx) => {
+      const block = document.createElement('div');
+      block.className = 'prompt-block';
+      const ta = document.createElement('textarea');
+      ta.placeholder = placeholders[key];
+      ta.value = text;
+      ta.addEventListener('input', () => {
+        editingBlocks[key][idx] = ta.value;
+        updateCharCount();
+      });
+      block.appendChild(ta);
+      if (editingBlocks[key].length > 1) {
+        const rm = document.createElement('button');
+        rm.className = 'prompt-block-remove';
+        rm.textContent = '✕';
+        rm.addEventListener('click', () => {
+          editingBlocks[key].splice(idx, 1);
+          renderBlockEditors();
+          updateCharCount();
+        });
+        block.appendChild(rm);
+      }
+      el.appendChild(block);
+    });
+  });
+}
+
+document.querySelectorAll('.add-block-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.target;
+    editingBlocks[target].push('');
+    renderBlockEditors();
+  });
+});
+
+function renderAvatarPreview() {
+  if (editingAvatar && editingAvatar.src) {
+    avatarPreview.style.backgroundImage = `url(${editingAvatar.src})`;
+    avatarPreview.style.backgroundPosition = `${editingAvatar.offsetX}% ${editingAvatar.offsetY}%`;
+    avatarPreview.style.backgroundSize = `${editingAvatar.zoom}%`;
+    avatarPreview.textContent = '';
+  } else {
+    avatarPreview.style.backgroundImage = 'none';
+    avatarPreview.textContent = '👤';
+  }
+}
+
+function renderColorSwatches() {
+  colorSwatches.innerHTML = '';
+  THEME_COLORS.forEach(c => {
+    const sw = document.createElement('div');
+    sw.className = 'color-swatch' + (editingTheme === c.key ? ' selected' : '');
+    sw.style.background = c.hex;
+    sw.addEventListener('click', () => {
+      editingTheme = c.key;
+      renderColorSwatches();
+    });
+    colorSwatches.appendChild(sw);
+  });
+}
 
 saveSettingsBtn.addEventListener('click', () => {
   const room = getActiveRoom();
   if (!room) return;
   room.name = roomNameInput.value.trim() || room.name;
   room.apiModel = modelSelect.value;
-  room.systemPrompt = systemPromptInput.value;
+  room.promptBlocks = {
+    rule: editingBlocks.rule.filter((t, i) => t.trim() || editingBlocks.rule.length === 1),
+    world: editingBlocks.world.filter((t, i) => t.trim() || editingBlocks.world.length === 1),
+    char: editingBlocks.char.filter((t, i) => t.trim() || editingBlocks.char.length === 1)
+  };
+  room.systemPrompt = buildCombinedPrompt(room); // 互換用
   room.historyLimit = parseInt(historyLimitSelect.value, 10);
+  room.avatar = editingAvatar;
+  room.theme = editingTheme;
   store.apiKey = apiKeyInput.value.trim();
-  store.jpyRate = parseFloat(jpyRateInput.value) || 150;
+  store.jpyRate = parseFloat(jpyRateInput.value) || 159;
   saveStore();
   closeAllPanels();
   renderRoom();
   renderNotice('設定を保存しました。');
+});
+
+// --- Avatar cropping modal ---
+const avatarModalBg = document.getElementById('avatarModalBg');
+const cropViewport = document.getElementById('cropViewport');
+const cropImg = document.getElementById('cropImg');
+const zoomRange = document.getElementById('zoomRange');
+const cancelAvatarBtn = document.getElementById('cancelAvatarBtn');
+const confirmAvatarBtn = document.getElementById('confirmAvatarBtn');
+
+let cropState = { src: null, offsetXpx: 0, offsetYpx: 0, zoom: 100, dragging: false, startX: 0, startY: 0 };
+
+editAvatarBtn.addEventListener('click', () => avatarFileInput.click());
+
+avatarFileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    cropState = { src: ev.target.result, offsetXpx: 0, offsetYpx: 0, zoom: 100, dragging: false, startX: 0, startY: 0 };
+    cropImg.src = cropState.src;
+    zoomRange.value = 100;
+    applyCropTransform();
+    avatarModalBg.classList.add('open');
+  };
+  reader.readAsDataURL(file);
+  avatarFileInput.value = '';
+});
+
+function applyCropTransform() {
+  cropImg.style.width = cropState.zoom + '%';
+  cropImg.style.left = `calc(50% + ${cropState.offsetXpx}px)`;
+  cropImg.style.top = `calc(50% + ${cropState.offsetYpx}px)`;
+  cropImg.style.transform = 'translate(-50%, -50%)';
+}
+
+zoomRange.addEventListener('input', () => {
+  cropState.zoom = parseInt(zoomRange.value, 10);
+  applyCropTransform();
+});
+
+function cropPointerStart(x, y) {
+  cropState.dragging = true;
+  cropState.startX = x - cropState.offsetXpx;
+  cropState.startY = y - cropState.offsetYpx;
+}
+function cropPointerMove(x, y) {
+  if (!cropState.dragging) return;
+  cropState.offsetXpx = x - cropState.startX;
+  cropState.offsetYpx = y - cropState.startY;
+  applyCropTransform();
+}
+function cropPointerEnd() { cropState.dragging = false; }
+
+cropViewport.addEventListener('mousedown', (e) => cropPointerStart(e.clientX, e.clientY));
+window.addEventListener('mousemove', (e) => cropPointerMove(e.clientX, e.clientY));
+window.addEventListener('mouseup', cropPointerEnd);
+cropViewport.addEventListener('touchstart', (e) => {
+  const t = e.touches[0]; cropPointerStart(t.clientX, t.clientY);
+}, { passive: true });
+cropViewport.addEventListener('touchmove', (e) => {
+  const t = e.touches[0]; cropPointerMove(t.clientX, t.clientY);
+}, { passive: true });
+cropViewport.addEventListener('touchend', cropPointerEnd);
+
+cancelAvatarBtn.addEventListener('click', () => avatarModalBg.classList.remove('open'));
+
+confirmAvatarBtn.addEventListener('click', () => {
+  // ビューポート220pxに対する相対位置を % で保存（表示側で再現するため）
+  const viewportSize = 220;
+  const offsetXPercent = 50 - (cropState.offsetXpx / viewportSize) * 100 * (100 / cropState.zoom);
+  const offsetYPercent = 50 - (cropState.offsetYpx / viewportSize) * 100 * (100 / cropState.zoom);
+  editingAvatar = {
+    src: cropState.src,
+    offsetX: Math.max(0, Math.min(100, offsetXPercent)),
+    offsetY: Math.max(0, Math.min(100, offsetYPercent)),
+    zoom: cropState.zoom
+  };
+  renderAvatarPreview();
+  avatarModalBg.classList.remove('open');
 });
 
 deleteRoomBtn.addEventListener('click', () => {
@@ -539,9 +889,21 @@ function renderNotice(text) {
   scrollToBottom();
 }
 
+function applyRoomTheme(room) {
+  document.body.className = 'theme-' + (room.theme || 'blue');
+}
+
+function avatarStyleFor(room) {
+  if (room.avatar && room.avatar.src) {
+    return `background-image:url(${room.avatar.src}); background-position:${room.avatar.offsetX}% ${room.avatar.offsetY}%; background-size:${room.avatar.zoom}%;`;
+  }
+  return '';
+}
+
 function renderRoom() {
   const room = getActiveRoom();
   if (!room) return;
+  applyRoomTheme(room);
   roomTitle.textContent = room.name;
   chatEl.innerHTML = '';
   if (room.messages.length === 0) {
@@ -550,21 +912,68 @@ function renderRoom() {
     es.textContent = 'この部屋にはまだ会話がありません。メッセージを送ってみましょう。';
     chatEl.appendChild(es);
   } else {
-    room.messages.forEach(m => {
-      const el = document.createElement('div');
-      el.className = 'msg ' + (m.role === 'user' ? 'user' : 'ai');
-      el.textContent = m.text;
-      if (m.role !== 'user' && m.cost) {
-        const tag = document.createElement('span');
-        tag.className = 'cost-tag';
-        tag.textContent = `¥${m.cost.jpy.toFixed(1)}`;
-        el.appendChild(tag);
-      }
-      chatEl.appendChild(el);
+    room.messages.forEach((m, idx) => {
+      chatEl.appendChild(buildMessageRow(room, m, idx));
     });
   }
   scrollToBottom();
   renderHeaderUsage();
+}
+
+function buildMessageRow(room, m, idx) {
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + (m.role === 'user' ? 'user-row' : 'ai-row');
+
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  if (m.role === 'user') {
+    avatar.textContent = '🙂';
+  } else {
+    const style = avatarStyleFor(room);
+    if (style) { avatar.setAttribute('style', style); }
+    else { avatar.textContent = '🤖'; }
+  }
+
+  const col = document.createElement('div');
+  col.className = 'msg-col';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg ' + (m.role === 'user' ? 'user' : 'ai');
+  bubble.textContent = m.text;
+  if (m.role !== 'user' && m.cost) {
+    const tag = document.createElement('span');
+    tag.className = 'cost-tag';
+    tag.textContent = `¥${m.cost.jpy.toFixed(1)}`;
+    bubble.appendChild(tag);
+  }
+  col.appendChild(bubble);
+
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'msg-action-btn';
+  delBtn.textContent = '削除';
+  delBtn.addEventListener('click', () => {
+    if (!confirm('このメッセージを削除しますか？')) return;
+    room.messages.splice(idx, 1);
+    saveStore();
+    renderRoom();
+  });
+  actions.appendChild(delBtn);
+
+  if (m.role !== 'user') {
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'msg-action-btn';
+    regenBtn.textContent = '🔄再生成';
+    regenBtn.addEventListener('click', () => regenerateMessage(room, idx));
+    actions.appendChild(regenBtn);
+  }
+
+  col.appendChild(actions);
+  row.appendChild(avatar);
+  row.appendChild(col);
+  return row;
 }
 
 function scrollToBottom() {
@@ -602,6 +1011,8 @@ function hideTyping() {
   if (el) el.remove();
 }
 
+function genMsgId() { return 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); }
+
 async function sendMessage() {
   const text = textInput.value.trim();
   if (!text) return;
@@ -613,7 +1024,8 @@ async function sendMessage() {
     return;
   }
 
-  room.messages.push({ role: 'user', text });
+  const userMsg = { id: genMsgId(), role: 'user', text };
+  room.messages.push(userMsg);
   saveStore();
   renderRoom();
   textInput.value = '';
@@ -624,34 +1036,87 @@ async function sendMessage() {
   try {
     const result = await callGeminiAPI(room);
     hideTyping();
-
-    const pricing = PRICING[room.apiModel] || PRICING['gemini-3.1-pro-preview'];
-    const inTok = result.usage.promptTokenCount || 0;
-    const outTok = result.usage.candidatesTokenCount || 0;
-    const costUsd = (inTok / 1e6 * pricing.in) + (outTok / 1e6 * pricing.out);
-
-    room.usage.msgCount = (room.usage.msgCount || 0) + 1;
-    room.usage.inTokens = (room.usage.inTokens || 0) + inTok;
-    room.usage.outTokens = (room.usage.outTokens || 0) + outTok;
-    room.usage.totalUsd = (room.usage.totalUsd || 0) + costUsd;
-
-    room.messages.push({
-      role: 'model',
-      text: result.text,
-      cost: { usd: costUsd, jpy: costUsd * store.jpyRate }
-    });
+    applyApiResult(room, result);
     saveStore();
     renderRoom();
   } catch (err) {
     hideTyping();
+    // 送信失敗：この発言を履歴から取り消す（なかったことにする）
+    const idx = room.messages.findIndex(m => m.id === userMsg.id);
+    if (idx !== -1) room.messages.splice(idx, 1);
+    saveStore();
+    renderRoom();
     const el = document.createElement('div');
     el.className = 'msg error';
-    el.textContent = 'エラー: ' + err.message;
+    el.textContent = 'エラー: ' + err.message + '（送信は取り消されました。もう一度お試しください）';
     chatEl.appendChild(el);
     scrollToBottom();
   } finally {
     sendBtn.disabled = false;
   }
+}
+
+function applyApiResult(room, result) {
+  const pricing = PRICING[room.apiModel] || PRICING['gemini-3.1-pro-preview'];
+  const inTok = result.usage.promptTokenCount || 0;
+  const outTok = result.usage.candidatesTokenCount || 0;
+  const costUsd = (inTok / 1e6 * pricing.in) + (outTok / 1e6 * pricing.out);
+
+  room.usage.msgCount = (room.usage.msgCount || 0) + 1;
+  room.usage.inTokens = (room.usage.inTokens || 0) + inTok;
+  room.usage.outTokens = (room.usage.outTokens || 0) + outTok;
+  room.usage.totalUsd = (room.usage.totalUsd || 0) + costUsd;
+
+  room.messages.push({
+    id: genMsgId(),
+    role: 'model',
+    text: result.text,
+    cost: { usd: costUsd, jpy: costUsd * store.jpyRate }
+  });
+}
+
+async function regenerateMessage(room, idx) {
+  const target = room.messages[idx];
+  if (!target || target.role === 'user') return;
+  sendBtn.disabled = true;
+  showTyping();
+  try {
+    // 対象より後ろの履歴を一時的に切り離してAPIに送る（対象自体は含めない）
+    const historyBackup = room.messages;
+    room.messages = room.messages.slice(0, idx);
+    const result = await callGeminiAPI(room);
+    room.messages = historyBackup;
+    hideTyping();
+    // 元のメッセージを新しい返信に差し替え
+    room.messages.splice(idx, 1);
+    applyApiResultAt(room, idx, result);
+    saveStore();
+    renderRoom();
+  } catch (err) {
+    hideTyping();
+    renderNotice('再生成に失敗しました: ' + err.message);
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+function applyApiResultAt(room, idx, result) {
+  const pricing = PRICING[room.apiModel] || PRICING['gemini-3.1-pro-preview'];
+  const inTok = result.usage.promptTokenCount || 0;
+  const outTok = result.usage.candidatesTokenCount || 0;
+  const costUsd = (inTok / 1e6 * pricing.in) + (outTok / 1e6 * pricing.out);
+
+  room.usage.msgCount = (room.usage.msgCount || 0) + 1;
+  room.usage.inTokens = (room.usage.inTokens || 0) + inTok;
+  room.usage.outTokens = (room.usage.outTokens || 0) + outTok;
+  room.usage.totalUsd = (room.usage.totalUsd || 0) + costUsd;
+
+  room.messages.splice(idx, 0, {
+    id: genMsgId(),
+    role: 'model',
+    text: result.text,
+    cost: { usd: costUsd, jpy: costUsd * store.jpyRate }
+  });
 }
 
 async function callGeminiAPI(room) {
@@ -663,10 +1128,11 @@ async function callGeminiAPI(room) {
     parts: [{ text: m.text }]
   }));
 
+  const combinedPrompt = buildCombinedPrompt(room);
   const body = {
     contents,
-    systemInstruction: room.systemPrompt
-      ? { parts: [{ text: room.systemPrompt }] }
+    systemInstruction: combinedPrompt
+      ? { parts: [{ text: combinedPrompt }] }
       : undefined
   };
 
@@ -709,6 +1175,7 @@ async function callGeminiAPI(room) {
 // init
 loadStore();
 renderRoom();
+applyRoomTheme(getActiveRoom());
 </script>
 </body>
 </html>
