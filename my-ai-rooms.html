@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>My AI Rooms</title>
+<style>
+  :root {
+    --bg: #16181d;
+    --bg-panel: #1e2128;
+    --bg-input: #262a33;
+    --border: #333844;
+    --text: #e8e9ed;
+    --text-dim: #8b8f9a;
+    --accent: #7c9eff;
+    --accent-dim: #4a5a8a;
+    --user-bubble: #2c3e6b;
+    --ai-bubble: #262a33;
+    --danger: #d97878;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    overscroll-behavior: none;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .header-left { display: flex; flex-direction: column; min-width: 0; }
+  header h1 {
+    font-size: 15px; font-weight: 600; margin: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 46vw;
+  }
+  #usageSummary { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  #usageSummary b { color: var(--accent); font-weight: 600; }
+  .header-btns { display: flex; gap: 6px; flex-shrink: 0; }
+  .icon-btn {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .icon-btn:active { background: var(--accent-dim); }
+
+  #chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg {
+    max-width: 85%; padding: 10px 14px; border-radius: var(--radius);
+    font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+  }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); border-bottom-right-radius: 4px; }
+  .msg.ai { align-self: flex-start; background: var(--ai-bubble); border-bottom-left-radius: 4px; }
+  .msg.ai .cost-tag { display: block; margin-top: 6px; font-size: 10.5px; color: var(--text-dim); }
+  .msg.system-note {
+    align-self: center; background: transparent; color: var(--text-dim);
+    font-size: 12px; text-align: center; max-width: 100%;
+  }
+  .msg.error {
+    align-self: center; background: rgba(217,120,120,0.12);
+    border: 1px solid rgba(217,120,120,0.3); color: var(--danger);
+    font-size: 13px; max-width: 95%;
+  }
+  .empty-state { margin: auto; text-align: center; color: var(--text-dim); font-size: 14px; padding: 0 24px; }
+  .typing { align-self: flex-start; display: flex; gap: 4px; padding: 12px 16px; }
+  .typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); animation: blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+  #inputbar {
+    display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px;
+    background: var(--bg-panel); border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  #textInput {
+    flex: 1; resize: none; max-height: 120px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 20px;
+    padding: 10px 16px; color: var(--text); font-size: 15px; font-family: inherit; line-height: 1.4;
+  }
+  #textInput:focus { outline: none; border-color: var(--accent-dim); }
+  #sendBtn {
+    background: var(--accent); border: none; color: #10121a;
+    width: 40px; height: 40px; border-radius: 50%; font-size: 18px; flex-shrink: 0; cursor: pointer;
+  }
+  #sendBtn:disabled { background: var(--accent-dim); color: var(--text-dim); }
+
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; z-index: 10; }
+  #overlay.open { display: block; }
+  .panel {
+    position: fixed; top: 0; right: -100%; width: 88%; max-width: 400px; height: 100%;
+    background: var(--bg-panel); z-index: 11; transition: right 0.25s ease;
+    overflow-y: auto; padding: 20px; border-left: 1px solid var(--border);
+  }
+  .panel.open { right: 0; }
+  .panel h2 { font-size: 16px; margin: 0 0 4px; }
+  .panel .sub { color: var(--text-dim); font-size: 12px; margin: 0 0 20px; line-height: 1.5; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .field .hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; line-height: 1.5; }
+  .field input[type="text"], .field input[type="password"], .field input[type="number"], .field select {
+    width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; color: var(--text); font-size: 14px; font-family: inherit;
+  }
+  .field textarea {
+    width: 100%; background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; color: var(--text); font-size: 14px; font-family: inherit;
+    line-height: 1.5; resize: vertical; min-height: 160px;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--accent-dim); }
+  .char-count { text-align: right; font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .btn-row { display: flex; gap: 8px; margin-top: 20px; }
+  .btn { flex: 1; padding: 12px; border-radius: 10px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: var(--accent); color: #10121a; }
+  .btn-secondary { background: var(--bg-input); color: var(--text); border: 1px solid var(--border); }
+  .btn-danger { background: transparent; color: var(--danger); border: 1px solid rgba(217,120,120,0.4); }
+  .toggle-pw { font-size: 11px; color: var(--accent); cursor: pointer; margin-top: 6px; display: inline-block; }
+
+  /* Room list */
+  .room-card {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .room-card.active { border-color: var(--accent); }
+  .room-card-top { display: flex; justify-content: space-between; align-items: center; }
+  .room-name { font-size: 14px; font-weight: 600; }
+  .room-meta { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+  /* Usage panel */
+  .usage-card { background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .usage-row { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; font-size: 13px; }
+  .usage-row .label { color: var(--text-dim); }
+  .usage-row .value { font-weight: 600; }
+  .usage-row.total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; font-size: 15px; }
+  .usage-row.total .value { color: var(--accent); font-size: 18px; }
+  .usage-jpy { font-size: 12px; color: var(--text-dim); }
+  .rate-note { font-size: 11px; color: var(--text-dim); line-height: 1.6; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="header-left">
+      <h1 id="roomTitle">部屋を選択</h1>
+      <div id="usageSummary">この部屋: ¥0</div>
+    </div>
+    <div class="header-btns">
+      <button class="icon-btn" id="roomsBtn" title="部屋一覧">☰</button>
+      <button class="icon-btn" id="usageBtn" title="使用量">¥</button>
+      <button class="icon-btn" id="exportBtn" title="書き出し">⬇</button>
+      <button class="icon-btn" id="settingsBtn" title="設定">⚙</button>
+    </div>
+  </header>
+
+  <div id="chat">
+    <div class="empty-state" id="emptyState">☰から部屋を選ぶか、新しい部屋を作ってください。</div>
+  </div>
+
+  <div id="inputbar">
+    <textarea id="textInput" rows="1" placeholder="メッセージを入力…"></textarea>
+    <button id="sendBtn">↑</button>
+  </div>
+</div>
+
+<div id="overlay"></div>
+
+<!-- 部屋一覧 -->
+<div class="panel" id="roomsPanel">
+  <h2>部屋一覧</h2>
+  <p class="sub">部屋ごとにカスタム指示・会話履歴が独立して保存されます。</p>
+  <div id="roomList"></div>
+  <div class="btn-row">
+    <button class="btn btn-secondary" id="closeRooms">閉じる</button>
+    <button class="btn btn-primary" id="addRoomBtn">＋ 新しい部屋</button>
+  </div>
+</div>
+
+<!-- 設定(部屋ごとの内容) -->
+<div class="panel" id="settings">
+  <h2>この部屋の設定</h2>
+  <p class="sub">APIキーは全部屋共通です。カスタム指示はこの部屋だけに保存されます。</p>
+
+  <div class="field">
+    <label>部屋の名前</label>
+    <input type="text" id="roomNameInput" placeholder="例: 個人会話用">
+  </div>
+
+  <div class="field">
+    <label>Gemini APIキー(全部屋共通)</label>
+    <input type="password" id="apiKey" placeholder="AIza...">
+    <span class="toggle-pw" id="togglePw">表示する</span>
+  </div>
+
+  <div class="field">
+    <label>モデル</label>
+    <select id="modelSelect">
+      <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Preview)</option>
+      <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+      <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>カスタム指示（この部屋専用）</label>
+    <textarea id="systemPrompt" placeholder="この部屋だけのルール・キャラ設定・あらすじなどを自由に書いてください。"></textarea>
+    <div class="char-count" id="charCount">0文字</div>
+    <div class="hint">毎回ほぼ同じ内容にしておくと、Gemini側のキャッシュが効きやすく、料金が安くなりやすいです（自動判定・操作不要）。</div>
+  </div>
+
+  <div class="field">
+    <label>送信する履歴の範囲</label>
+    <select id="historyLimit">
+      <option value="6">直近3往復</option>
+      <option value="10" selected>直近5往復</option>
+      <option value="20">直近10往復</option>
+      <option value="9999">全履歴</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>1ドルあたりの円換算レート</label>
+    <input type="number" id="jpyRate" value="150" step="1">
+    <div class="hint">為替は変動するので、あくまで目安です。</div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-secondary" id="closeSettings">閉じる</button>
+    <button class="btn btn-primary" id="saveSettings">保存</button>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-danger" id="deleteRoomBtn">この部屋を削除</button>
+  </div>
+</div>
+
+<!-- 使用量 -->
+<div class="panel" id="usagePanel">
+  <h2>使用量・料金</h2>
+  <p class="sub">この部屋の累計です。Google公式の請求額とは別集計の目安です。</p>
+
+  <div class="usage-card">
+    <div class="usage-row"><span class="label">送信回数</span><span class="value" id="msgCount">0回</span></div>
+    <div class="usage-row"><span class="label">入力トークン(推定)</span><span class="value" id="inTokens">0</span></div>
+    <div class="usage-row"><span class="label">出力トークン(推定)</span><span class="value" id="outTokens">0</span></div>
+    <div class="usage-row total"><span class="label">累計料金</span><span class="value" id="totalUsd">$0.00</span></div>
+    <div class="usage-jpy" id="totalJpy">≒ ¥0</div>
+  </div>
+
+  <div class="usage-card">
+    <div class="usage-row"><span class="label">全部屋 合計</span><span class="value" id="allTotalUsd">$0.00</span></div>
+    <div class="usage-jpy" id="allTotalJpy">≒ ¥0</div>
+  </div>
+
+  <div class="rate-note">
+    公式APIレスポンスのトークン数から、Gemini 3.1 Proの単価（入力$2／出力$12 per 1Mトークン、キャッシュ非対応時）で計算しています。暗黙的キャッシュが効いた場合は実際の請求額はこれより安くなります。正式な金額は必ずGoogle AI Studio／Cloud Consoleの使用量ページで確認してください。
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-secondary" id="closeUsage">閉じる</button>
+    <button class="btn btn-danger" id="resetUsageBtn">この部屋の使用量をリセット</button>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'my_ai_rooms_v1';
+
+const PRICING = {
+  'gemini-3.1-pro-preview': { in: 2.00, out: 12.00 },
+  'gemini-2.5-pro':         { in: 1.25, out: 10.00 },
+  'gemini-2.5-flash':       { in: 0.30, out: 2.50 },
+  'gemini-2.5-flash-lite':  { in: 0.10, out: 0.40 }
+};
+
+function newRoom(name) {
+  return {
+    id: 'room_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    name: name || '新しい部屋',
+    apiModel: 'gemini-3.1-pro-preview',
+    systemPrompt: '',
+    historyLimit: 10,
+    messages: [], // {role, text, cost?}
+    usage: { msgCount: 0, inTokens: 0, outTokens: 0, totalUsd: 0 }
+  };
+}
+
+let store = {
+  apiKey: '',
+  jpyRate: 150,
+  activeRoomId: null,
+  rooms: []
+};
+
+function loadStore() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      store = Object.assign(store, JSON.parse(raw));
+    }
+  } catch (e) { console.error('load failed', e); }
+  if (!store.rooms || store.rooms.length === 0) {
+    store.rooms = [newRoom('部屋1')];
+    store.activeRoomId = store.rooms[0].id;
+  }
+  if (!store.activeRoomId || !store.rooms.find(r => r.id === store.activeRoomId)) {
+    store.activeRoomId = store.rooms[0].id;
+  }
+}
+function saveStore() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }
+  catch (e) { console.error('save failed', e); }
+}
+function getActiveRoom() {
+  return store.rooms.find(r => r.id === store.activeRoomId);
+}
+
+// --- DOM refs ---
+const chatEl = document.getElementById('chat');
+const emptyState = document.getElementById('emptyState');
+const textInput = document.getElementById('textInput');
+const sendBtn = document.getElementById('sendBtn');
+const roomTitle = document.getElementById('roomTitle');
+const usageSummary = document.getElementById('usageSummary');
+
+const overlay = document.getElementById('overlay');
+const roomsPanel = document.getElementById('roomsPanel');
+const settingsPanel = document.getElementById('settings');
+const usagePanel = document.getElementById('usagePanel');
+
+const roomsBtn = document.getElementById('roomsBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+const usageBtn = document.getElementById('usageBtn');
+const exportBtn = document.getElementById('exportBtn');
+
+const closeRooms = document.getElementById('closeRooms');
+const closeSettings = document.getElementById('closeSettings');
+const closeUsage = document.getElementById('closeUsage');
+const addRoomBtn = document.getElementById('addRoomBtn');
+const roomList = document.getElementById('roomList');
+
+const roomNameInput = document.getElementById('roomNameInput');
+const apiKeyInput = document.getElementById('apiKey');
+const modelSelect = document.getElementById('modelSelect');
+const systemPromptInput = document.getElementById('systemPrompt');
+const historyLimitSelect = document.getElementById('historyLimit');
+const jpyRateInput = document.getElementById('jpyRate');
+const charCount = document.getElementById('charCount');
+const togglePw = document.getElementById('togglePw');
+const saveSettingsBtn = document.getElementById('saveSettings');
+const deleteRoomBtn = document.getElementById('deleteRoomBtn');
+const resetUsageBtn = document.getElementById('resetUsageBtn');
+
+function openPanel(p) { overlay.classList.add('open'); p.classList.add('open'); }
+function closeAllPanels() {
+  overlay.classList.remove('open');
+  roomsPanel.classList.remove('open');
+  settingsPanel.classList.remove('open');
+  usagePanel.classList.remove('open');
+}
+overlay.addEventListener('click', closeAllPanels);
+closeRooms.addEventListener('click', closeAllPanels);
+closeSettings.addEventListener('click', closeAllPanels);
+closeUsage.addEventListener('click', closeAllPanels);
+
+// --- Rooms panel ---
+roomsBtn.addEventListener('click', () => { renderRoomList(); openPanel(roomsPanel); });
+
+function renderRoomList() {
+  roomList.innerHTML = '';
+  store.rooms.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'room-card' + (r.id === store.activeRoomId ? ' active' : '');
+    const msgN = r.messages.length;
+    card.innerHTML = `
+      <div class="room-card-top">
+        <span class="room-name">${escapeHtml(r.name)}</span>
+      </div>
+      <div class="room-meta">${msgN}件のメッセージ ・ ¥${((r.usage.totalUsd||0)*store.jpyRate).toFixed(0)}</div>
+    `;
+    card.addEventListener('click', () => {
+      store.activeRoomId = r.id;
+      saveStore();
+      closeAllPanels();
+      renderRoom();
+    });
+    roomList.appendChild(card);
+  });
+}
+
+addRoomBtn.addEventListener('click', () => {
+  if (store.rooms.length >= 4) {
+    alert('部屋は最大4つまでです。増やしたい場合は、不要な部屋を削除してください。');
+    return;
+  }
+  const name = prompt('新しい部屋の名前を入力してください', '部屋' + (store.rooms.length + 1));
+  if (name === null) return;
+  const room = newRoom(name || '新しい部屋');
+  store.rooms.push(room);
+  store.activeRoomId = room.id;
+  saveStore();
+  closeAllPanels();
+  renderRoom();
+});
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// --- Settings panel ---
+settingsBtn.addEventListener('click', () => {
+  const room = getActiveRoom();
+  if (!room) return;
+  roomNameInput.value = room.name;
+  apiKeyInput.value = store.apiKey;
+  modelSelect.value = room.apiModel;
+  systemPromptInput.value = room.systemPrompt;
+  historyLimitSelect.value = String(room.historyLimit);
+  jpyRateInput.value = store.jpyRate;
+  updateCharCount();
+  openPanel(settingsPanel);
+});
+
+togglePw.addEventListener('click', () => {
+  if (apiKeyInput.type === 'password') { apiKeyInput.type = 'text'; togglePw.textContent = '隠す'; }
+  else { apiKeyInput.type = 'password'; togglePw.textContent = '表示する'; }
+});
+
+systemPromptInput.addEventListener('input', updateCharCount);
+function updateCharCount() { charCount.textContent = systemPromptInput.value.length + '文字'; }
+
+saveSettingsBtn.addEventListener('click', () => {
+  const room = getActiveRoom();
+  if (!room) return;
+  room.name = roomNameInput.value.trim() || room.name;
+  room.apiModel = modelSelect.value;
+  room.systemPrompt = systemPromptInput.value;
+  room.historyLimit = parseInt(historyLimitSelect.value, 10);
+  store.apiKey = apiKeyInput.value.trim();
+  store.jpyRate = parseFloat(jpyRateInput.value) || 150;
+  saveStore();
+  closeAllPanels();
+  renderRoom();
+  renderNotice('設定を保存しました。');
+});
+
+deleteRoomBtn.addEventListener('click', () => {
+  if (store.rooms.length <= 1) {
+    alert('最後の1部屋は削除できません。');
+    return;
+  }
+  const room = getActiveRoom();
+  if (!confirm(`「${room.name}」を削除します。この部屋の会話履歴も全て消えます。よろしいですか？`)) return;
+  store.rooms = store.rooms.filter(r => r.id !== room.id);
+  store.activeRoomId = store.rooms[0].id;
+  saveStore();
+  closeAllPanels();
+  renderRoom();
+});
+
+// --- Usage panel ---
+usageBtn.addEventListener('click', () => { renderUsagePanel(); openPanel(usagePanel); });
+
+function renderUsagePanel() {
+  const room = getActiveRoom();
+  if (!room) return;
+  const u = room.usage;
+  document.getElementById('msgCount').textContent = (u.msgCount||0) + '回';
+  document.getElementById('inTokens').textContent = (u.inTokens||0).toLocaleString();
+  document.getElementById('outTokens').textContent = (u.outTokens||0).toLocaleString();
+  const usd = u.totalUsd || 0;
+  document.getElementById('totalUsd').textContent = '$' + usd.toFixed(4);
+  document.getElementById('totalJpy').textContent = `≒ ¥${(usd*store.jpyRate).toFixed(1)}`;
+
+  const allUsd = store.rooms.reduce((sum, r) => sum + (r.usage.totalUsd || 0), 0);
+  document.getElementById('allTotalUsd').textContent = '$' + allUsd.toFixed(4);
+  document.getElementById('allTotalJpy').textContent = `≒ ¥${(allUsd*store.jpyRate).toFixed(1)}`;
+}
+
+resetUsageBtn.addEventListener('click', () => {
+  const room = getActiveRoom();
+  if (!room) return;
+  if (!confirm('この部屋の使用量・料金カウンターだけをリセットします（会話履歴は残ります）。よろしいですか？')) return;
+  room.usage = { msgCount: 0, inTokens: 0, outTokens: 0, totalUsd: 0 };
+  saveStore();
+  renderUsagePanel();
+  renderHeaderUsage();
+});
+
+// --- Export ---
+exportBtn.addEventListener('click', () => {
+  const room = getActiveRoom();
+  if (!room || room.messages.length === 0) {
+    alert('この部屋にはまだ会話がありません。');
+    return;
+  }
+  let out = `# ${room.name}\n`;
+  out += `モデル: ${room.apiModel}\n`;
+  out += `書き出し日時: ${new Date().toLocaleString('ja-JP')}\n`;
+  out += `----------------------------------------\n\n`;
+  room.messages.forEach(m => {
+    const speaker = m.role === 'user' ? 'あなた' : 'AI';
+    out += `【${speaker}】\n${m.text}\n\n`;
+  });
+
+  const blob = new Blob([out], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeName = room.name.replace(/[\\/:*?"<>|]/g, '_');
+  const dateStr = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `${safeName}_${dateStr}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// --- Chat rendering ---
+function renderNotice(text) {
+  const el = document.createElement('div');
+  el.className = 'msg system-note';
+  el.textContent = text;
+  chatEl.appendChild(el);
+  scrollToBottom();
+}
+
+function renderRoom() {
+  const room = getActiveRoom();
+  if (!room) return;
+  roomTitle.textContent = room.name;
+  chatEl.innerHTML = '';
+  if (room.messages.length === 0) {
+    const es = document.createElement('div');
+    es.className = 'empty-state';
+    es.textContent = 'この部屋にはまだ会話がありません。メッセージを送ってみましょう。';
+    chatEl.appendChild(es);
+  } else {
+    room.messages.forEach(m => {
+      const el = document.createElement('div');
+      el.className = 'msg ' + (m.role === 'user' ? 'user' : 'ai');
+      el.textContent = m.text;
+      if (m.role !== 'user' && m.cost) {
+        const tag = document.createElement('span');
+        tag.className = 'cost-tag';
+        tag.textContent = `¥${m.cost.jpy.toFixed(1)}`;
+        el.appendChild(tag);
+      }
+      chatEl.appendChild(el);
+    });
+  }
+  scrollToBottom();
+  renderHeaderUsage();
+}
+
+function scrollToBottom() {
+  requestAnimationFrame(() => { chatEl.scrollTop = chatEl.scrollHeight; });
+}
+
+function renderHeaderUsage() {
+  const room = getActiveRoom();
+  if (!room) return;
+  const usd = room.usage.totalUsd || 0;
+  const jpy = usd * store.jpyRate;
+  usageSummary.innerHTML = `この部屋: <b>¥${jpy.toFixed(0)}</b> (${room.usage.msgCount||0}回)`;
+}
+
+// --- Input ---
+textInput.addEventListener('input', () => {
+  textInput.style.height = 'auto';
+  textInput.style.height = Math.min(textInput.scrollHeight, 120) + 'px';
+});
+textInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+sendBtn.addEventListener('click', sendMessage);
+
+function showTyping() {
+  const el = document.createElement('div');
+  el.className = 'typing';
+  el.id = 'typingIndicator';
+  el.innerHTML = '<span></span><span></span><span></span>';
+  chatEl.appendChild(el);
+  scrollToBottom();
+}
+function hideTyping() {
+  const el = document.getElementById('typingIndicator');
+  if (el) el.remove();
+}
+
+async function sendMessage() {
+  const text = textInput.value.trim();
+  if (!text) return;
+  const room = getActiveRoom();
+  if (!room) return;
+
+  if (!store.apiKey) {
+    settingsBtn.click();
+    return;
+  }
+
+  room.messages.push({ role: 'user', text });
+  saveStore();
+  renderRoom();
+  textInput.value = '';
+  textInput.style.height = 'auto';
+  sendBtn.disabled = true;
+  showTyping();
+
+  try {
+    const result = await callGeminiAPI(room);
+    hideTyping();
+
+    const pricing = PRICING[room.apiModel] || PRICING['gemini-3.1-pro-preview'];
+    const inTok = result.usage.promptTokenCount || 0;
+    const outTok = result.usage.candidatesTokenCount || 0;
+    const costUsd = (inTok / 1e6 * pricing.in) + (outTok / 1e6 * pricing.out);
+
+    room.usage.msgCount = (room.usage.msgCount || 0) + 1;
+    room.usage.inTokens = (room.usage.inTokens || 0) + inTok;
+    room.usage.outTokens = (room.usage.outTokens || 0) + outTok;
+    room.usage.totalUsd = (room.usage.totalUsd || 0) + costUsd;
+
+    room.messages.push({
+      role: 'model',
+      text: result.text,
+      cost: { usd: costUsd, jpy: costUsd * store.jpyRate }
+    });
+    saveStore();
+    renderRoom();
+  } catch (err) {
+    hideTyping();
+    const el = document.createElement('div');
+    el.className = 'msg error';
+    el.textContent = 'エラー: ' + err.message;
+    chatEl.appendChild(el);
+    scrollToBottom();
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+async function callGeminiAPI(room) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${room.apiModel}:generateContent?key=${encodeURIComponent(store.apiKey)}`;
+
+  const recent = room.messages.slice(-room.historyLimit);
+  const contents = recent.map(m => ({
+    role: m.role === 'user' ? 'user' : 'model',
+    parts: [{ text: m.text }]
+  }));
+
+  const body = {
+    contents,
+    systemInstruction: room.systemPrompt
+      ? { parts: [{ text: room.systemPrompt }] }
+      : undefined
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const errJson = await res.json();
+      if (errJson.error && errJson.error.message) msg += ' - ' + errJson.error.message;
+    } catch (e) {}
+    throw new Error(msg);
+  }
+
+  const data = await res.json();
+
+  if (!data.candidates || data.candidates.length === 0) {
+    const reason = data.promptFeedback && data.promptFeedback.blockReason;
+    throw new Error(reason ? `応答がブロックされました (${reason})` : '応答が空でした');
+  }
+
+  const candidate = data.candidates[0];
+  if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'BLOCKED') {
+    throw new Error('セーフティフィルターにより応答がブロックされました');
+  }
+
+  const parts = candidate.content && candidate.content.parts;
+  if (!parts || parts.length === 0) throw new Error('応答の中身が取得できませんでした');
+
+  return {
+    text: parts.map(p => p.text || '').join(''),
+    usage: data.usageMetadata || {}
+  };
+}
+
+// init
+loadStore();
+renderRoom();
+</script>
+</body>
+</html>
