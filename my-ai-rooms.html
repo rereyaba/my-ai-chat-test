@@ -333,6 +333,7 @@
 
     <div class="char-count" id="charCount">合計 0文字</div>
     <div class="hint">毎回ほぼ同じ内容にしておくと、Gemini側のキャッシュが効きやすく、料金が安くなりやすいです（自動判定・操作不要）。</div>
+    <button class="btn btn-secondary" id="undoPromptBtn" style="width:100%; margin-top:10px; padding:10px;">前回保存時点に戻す</button>
   </div>
 
   <div class="field">
@@ -441,11 +442,13 @@ function newRoom(name) {
     temperature: 0.6,
     // 新形式：3カテゴリのブロック配列。互換のため systemPrompt(旧・単一文字列)も残す
     promptBlocks: { rule: [''], world: [''], char: [''] },
+    promptBlocksBackup: null, // 直前に保存していた内容（1世代のみ保持）
     systemPrompt: '',
     historyLimit: 10,
     theme: 'blue',
     avatar: null, // { src: dataURL, offsetX, offsetY, zoom }
-    messages: [], // {id, role, text, cost?}
+    favorite: false,
+    messages: [], // {id, role, text, versions?:[{text,cost}], activeVersion?:number, cost?}
     usage: { msgCount: 0, inTokens: 0, outTokens: 0, totalUsd: 0 }
   };
 }
@@ -500,6 +503,8 @@ function loadStore() {
     if (!r.theme) r.theme = 'blue';
     if (r.temperature === undefined) r.temperature = 0.6;
     if (r.avatar === undefined) r.avatar = null;
+    if (r.favorite === undefined) r.favorite = false;
+    if (r.promptBlocksBackup === undefined) r.promptBlocksBackup = null;
     r.messages.forEach(m => { if (!m.id) m.id = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); });
   });
 }
@@ -576,7 +581,9 @@ roomsBtn.addEventListener('click', () => { renderRoomList(); openPanel(roomsPane
 
 function renderRoomList() {
   roomList.innerHTML = '';
-  store.rooms.forEach(r => {
+  // お気に入りを先頭に、それぞれ追加順を維持
+  const sorted = [...store.rooms].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+  sorted.forEach(r => {
     const card = document.createElement('div');
     card.className = 'room-card' + (r.id === store.activeRoomId ? ' active' : '');
     const msgN = r.messages.length;
@@ -585,14 +592,19 @@ function renderRoomList() {
       : `<div class="avatar" style="width:28px;height:28px;">🤖</div>`;
     card.innerHTML = `
       <div class="room-card-top">
-        <div style="display:flex; align-items:center; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; min-width:0;">
           ${avatarHtml}
           <span class="room-name">${escapeHtml(r.name)}</span>
+        </div>
+        <div style="display:flex; gap:6px; flex-shrink:0;">
+          <button class="icon-btn fav-btn" style="width:28px;height:28px;font-size:13px;" data-room="${r.id}">${r.favorite ? '★' : '☆'}</button>
+          <button class="icon-btn dup-btn" style="width:28px;height:28px;font-size:13px;" data-room="${r.id}">⧉</button>
         </div>
       </div>
       <div class="room-meta">${msgN}件のメッセージ ・ ¥${((r.usage.totalUsd||0)*store.jpyRate).toFixed(0)}</div>
     `;
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.fav-btn') || e.target.closest('.dup-btn')) return;
       store.activeRoomId = r.id;
       saveStore();
       closeAllPanels();
@@ -600,11 +612,43 @@ function renderRoomList() {
     });
     roomList.appendChild(card);
   });
+
+  roomList.querySelectorAll('.fav-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const room = store.rooms.find(x => x.id === btn.dataset.room);
+      if (!room) return;
+      room.favorite = !room.favorite;
+      saveStore();
+      renderRoomList();
+    });
+  });
+
+  roomList.querySelectorAll('.dup-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (store.rooms.length >= 10) {
+        alert('部屋は最大10個までです。増やしたい場合は、不要な部屋を削除してください。');
+        return;
+      }
+      const room = store.rooms.find(x => x.id === btn.dataset.room);
+      if (!room) return;
+      const copy = JSON.parse(JSON.stringify(room));
+      copy.id = 'room_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      copy.name = room.name + 'のコピー';
+      copy.favorite = false;
+      copy.messages = [];
+      copy.usage = { msgCount: 0, inTokens: 0, outTokens: 0, totalUsd: 0 };
+      store.rooms.push(copy);
+      saveStore();
+      renderRoomList();
+    });
+  });
 }
 
 addRoomBtn.addEventListener('click', () => {
-  if (store.rooms.length >= 4) {
-    alert('部屋は最大4つまでです。増やしたい場合は、不要な部屋を削除してください。');
+  if (store.rooms.length >= 10) {
+    alert('部屋は最大10個までです。増やしたい場合は、不要な部屋を削除してください。');
     return;
   }
   const name = prompt('新しい部屋の名前を入力してください', '部屋' + (store.rooms.length + 1));
@@ -704,6 +748,23 @@ document.querySelectorAll('.add-block-btn').forEach(btn => {
   });
 });
 
+const undoPromptBtn = document.getElementById('undoPromptBtn');
+undoPromptBtn.addEventListener('click', () => {
+  const room = getActiveRoom();
+  if (!room || !room.promptBlocksBackup) {
+    alert('戻せる前回の保存内容がありません（この部屋でまだ一度も保存していないか、最初の保存です）。');
+    return;
+  }
+  if (!confirm('前回保存した時点の内容に戻します。今編集中の内容は失われます。よろしいですか？')) return;
+  editingBlocks = {
+    rule: [...room.promptBlocksBackup.rule],
+    world: [...room.promptBlocksBackup.world],
+    char: [...room.promptBlocksBackup.char]
+  };
+  renderBlockEditors();
+  updateCharCount();
+});
+
 function renderAvatarPreview() {
   if (editingAvatar && editingAvatar.src) {
     avatarPreview.style.backgroundImage = `url(${editingAvatar.src})`;
@@ -733,6 +794,8 @@ function renderColorSwatches() {
 saveSettingsBtn.addEventListener('click', () => {
   const room = getActiveRoom();
   if (!room) return;
+  // 保存前の内容を1世代だけバックアップ（元に戻すボタン用）
+  room.promptBlocksBackup = JSON.parse(JSON.stringify(room.promptBlocks));
   room.name = roomNameInput.value.trim() || room.name;
   room.apiModel = modelSelect.value;
   room.promptBlocks = {
@@ -914,7 +977,10 @@ exportBtn.addEventListener('click', () => {
   room.messages.forEach(m => {
     const speaker = m.role === 'user' ? 'あなた' : room.name;
     const cls = m.role === 'user' ? 'user' : 'ai';
-    bodyHtml += `<div class="log-msg ${cls}"><div class="log-speaker">${escapeForHtml(speaker)}</div><div class="log-text">${escapeForHtml(m.text)}</div></div>\n`;
+    const text = (Array.isArray(m.versions) && m.versions.length > 0)
+      ? m.versions[m.activeVersion || 0].text
+      : m.text;
+    bodyHtml += `<div class="log-msg ${cls}"><div class="log-speaker">${escapeForHtml(speaker)}</div><div class="log-text">${escapeForHtml(text)}</div></div>\n`;
   });
 
   const fullHtml = `<!DOCTYPE html>
@@ -996,16 +1062,52 @@ function buildMessageRow(room, m, idx) {
   const col = document.createElement('div');
   col.className = 'msg-col';
 
+  // versions対応：ある場合は現在選択中のバージョンを表示対象にする
+  const hasVersions = m.role !== 'user' && Array.isArray(m.versions) && m.versions.length > 1;
+  const activeIdx = hasVersions ? (m.activeVersion || 0) : 0;
+  const displayText = hasVersions ? m.versions[activeIdx].text : m.text;
+  const displayCost = hasVersions ? m.versions[activeIdx].cost : m.cost;
+
   const bubble = document.createElement('div');
   bubble.className = 'msg ' + (m.role === 'user' ? 'user' : 'ai');
-  bubble.textContent = m.text;
-  if (m.role !== 'user' && m.cost && !store.hideCost) {
+  bubble.textContent = displayText;
+  if (m.role !== 'user' && displayCost && !store.hideCost) {
     const tag = document.createElement('span');
     tag.className = 'cost-tag';
-    tag.textContent = `¥${m.cost.jpy.toFixed(1)}`;
+    tag.textContent = `¥${displayCost.jpy.toFixed(1)}`;
     bubble.appendChild(tag);
   }
   col.appendChild(bubble);
+
+  // バージョン切り替えUI（ChatGPT風の ◀ 1/2 ▶）
+  if (hasVersions) {
+    const switcher = document.createElement('div');
+    switcher.style.cssText = 'display:flex; align-items:center; gap:8px; margin-top:4px; font-size:11px; color:var(--text-dim);';
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'msg-action-btn';
+    prevBtn.textContent = '◀';
+    prevBtn.disabled = activeIdx === 0;
+    prevBtn.addEventListener('click', () => {
+      m.activeVersion = Math.max(0, activeIdx - 1);
+      saveStore();
+      renderRoom();
+    });
+    const label = document.createElement('span');
+    label.textContent = `${activeIdx + 1}/${m.versions.length}`;
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'msg-action-btn';
+    nextBtn.textContent = '▶';
+    nextBtn.disabled = activeIdx === m.versions.length - 1;
+    nextBtn.addEventListener('click', () => {
+      m.activeVersion = Math.min(m.versions.length - 1, activeIdx + 1);
+      saveStore();
+      renderRoom();
+    });
+    switcher.appendChild(prevBtn);
+    switcher.appendChild(label);
+    switcher.appendChild(nextBtn);
+    col.appendChild(switcher);
+  }
 
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
@@ -1152,9 +1254,27 @@ async function regenerateMessage(room, idx) {
     const result = await callGeminiAPI(room);
     room.messages = historyBackup;
     hideTyping();
-    // 元のメッセージを新しい返信に差し替え
-    room.messages.splice(idx, 1);
-    applyApiResultAt(room, idx, result);
+
+    const pricing = PRICING[room.apiModel] || PRICING['gemini-3.1-pro-preview'];
+    const inTok = result.usage.promptTokenCount || 0;
+    const outTok = result.usage.candidatesTokenCount || 0;
+    const costUsd = (inTok / 1e6 * pricing.in) + (outTok / 1e6 * pricing.out);
+    room.usage.msgCount = (room.usage.msgCount || 0) + 1;
+    room.usage.inTokens = (room.usage.inTokens || 0) + inTok;
+    room.usage.outTokens = (room.usage.outTokens || 0) + outTok;
+    room.usage.totalUsd = (room.usage.totalUsd || 0) + costUsd;
+    const newVersion = { text: result.text, cost: { usd: costUsd, jpy: costUsd * store.jpyRate } };
+
+    // 既存メッセージを versions 配列化（初回再生成時は元テキストを1つ目のバージョンとして保持）
+    if (!Array.isArray(target.versions)) {
+      target.versions = [{ text: target.text, cost: target.cost }];
+    }
+    target.versions.push(newVersion);
+    target.activeVersion = target.versions.length - 1;
+    // 表示用の text/cost も最新に合わせておく（互換のため）
+    target.text = newVersion.text;
+    target.cost = newVersion.cost;
+
     saveStore();
     renderRoom();
   } catch (err) {
@@ -1188,10 +1308,15 @@ async function callGeminiAPI(room) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${room.apiModel}:generateContent?key=${encodeURIComponent(store.apiKey)}`;
 
   const recent = room.messages.slice(-room.historyLimit);
-  const contents = recent.map(m => ({
-    role: m.role === 'user' ? 'user' : 'model',
-    parts: [{ text: m.text }]
-  }));
+  const contents = recent.map(m => {
+    const text = (Array.isArray(m.versions) && m.versions.length > 0)
+      ? m.versions[m.activeVersion || 0].text
+      : m.text;
+    return {
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text }]
+    };
+  });
 
   const combinedPrompt = buildCombinedPrompt(room);
   const body = {
