@@ -309,6 +309,14 @@
     </select>
   </div>
 
+  <div class="field" style="display:flex; align-items:center; justify-content:space-between; background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:12px 14px;">
+    <div>
+      <label style="margin:0;">Web検索を使う</label>
+      <div class="hint" style="margin-top:2px;">オンにすると、必要に応じてネットで調べてから返答します。夢小説・キャラ会話用の部屋ではオフのままを推奨します。</div>
+    </div>
+    <input type="checkbox" id="webSearchToggle" style="width:20px; height:20px; flex-shrink:0; margin-left:10px;">
+  </div>
+
   <div class="field">
     <label style="margin-bottom:2px;">カスタム指示（この部屋専用）</label>
     <div class="hint" style="margin-bottom:10px;">3つに分けて書けます。それぞれ「＋追加」で複数ブロックにできます。保存時に1つにまとめて送信されます。</div>
@@ -448,6 +456,7 @@ function newRoom(name) {
     theme: 'blue',
     avatar: null, // { src: dataURL, offsetX, offsetY, zoom }
     favorite: false,
+    webSearchEnabled: false,
     messages: [], // {id, role, text, versions?:[{text,cost}], activeVersion?:number, cost?}
     usage: { msgCount: 0, inTokens: 0, outTokens: 0, totalUsd: 0 }
   };
@@ -504,6 +513,7 @@ function loadStore() {
     if (r.temperature === undefined) r.temperature = 0.6;
     if (r.avatar === undefined) r.avatar = null;
     if (r.favorite === undefined) r.favorite = false;
+    if (r.webSearchEnabled === undefined) r.webSearchEnabled = false;
     if (r.promptBlocksBackup === undefined) r.promptBlocksBackup = null;
     r.messages.forEach(m => { if (!m.id) m.id = 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); });
   });
@@ -543,6 +553,7 @@ const roomList = document.getElementById('roomList');
 const roomNameInput = document.getElementById('roomNameInput');
 const apiKeyInput = document.getElementById('apiKey');
 const modelSelect = document.getElementById('modelSelect');
+const webSearchToggle = document.getElementById('webSearchToggle');
 const historyLimitSelect = document.getElementById('historyLimit');
 const temperatureSelect = document.getElementById('temperatureSelect');
 const jpyRateInput = document.getElementById('jpyRate');
@@ -672,6 +683,7 @@ settingsBtn.addEventListener('click', () => {
   roomNameInput.value = room.name;
   apiKeyInput.value = store.apiKey;
   modelSelect.value = room.apiModel;
+  webSearchToggle.checked = !!room.webSearchEnabled;
   historyLimitSelect.value = String(room.historyLimit);
   temperatureSelect.value = String(room.temperature !== undefined ? room.temperature : 0.6);
   jpyRateInput.value = store.jpyRate;
@@ -798,6 +810,7 @@ saveSettingsBtn.addEventListener('click', () => {
   room.promptBlocksBackup = JSON.parse(JSON.stringify(room.promptBlocks));
   room.name = roomNameInput.value.trim() || room.name;
   room.apiModel = modelSelect.value;
+  room.webSearchEnabled = webSearchToggle.checked;
   room.promptBlocks = {
     rule: editingBlocks.rule.filter((t, i) => t.trim() || editingBlocks.rule.length === 1),
     world: editingBlocks.world.filter((t, i) => t.trim() || editingBlocks.world.length === 1),
@@ -1328,6 +1341,10 @@ async function callGeminiAPI(room) {
       temperature: room.temperature !== undefined ? room.temperature : 0.6
     }
   };
+
+  if (room.webSearchEnabled) {
+    body.tools = [{ google_search: {} }];
+  }
 
   const res = await fetch(url, {
     method: 'POST',
