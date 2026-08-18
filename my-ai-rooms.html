@@ -1339,7 +1339,13 @@ async function callGeminiAPI(room) {
       : undefined,
     generationConfig: {
       temperature: room.temperature !== undefined ? room.temperature : 0.6
-    }
+    },
+    safetySettings: [
+      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+    ]
   };
 
   if (room.webSearchEnabled) {
@@ -1374,7 +1380,10 @@ async function callGeminiAPI(room) {
   }
 
   const parts = candidate.content && candidate.content.parts;
-  if (!parts || parts.length === 0) throw new Error('応答の中身が取得できませんでした');
+  if (!parts || parts.length === 0) {
+    const reason = candidate.finishReason ? `(finishReason: ${candidate.finishReason})` : '';
+    throw new Error('応答の中身が取得できませんでした ' + reason);
+  }
 
   return {
     text: parts.map(p => p.text || '').join(''),
