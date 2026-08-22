@@ -519,8 +519,14 @@ function loadStore() {
   });
 }
 function saveStore() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); }
-  catch (e) { console.error('save failed', e); }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    return true;
+  } catch (e) {
+    console.error('save failed', e);
+    alert('保存に失敗しました。保存容量の上限に達している可能性があります。アイコン画像を減らすか、別の画像に変えてみてください。');
+    return false;
+  }
 }
 function getActiveRoom() {
   return store.rooms.find(r => r.id === store.activeRoomId);
@@ -894,19 +900,57 @@ cropViewport.addEventListener('touchend', cropPointerEnd);
 
 cancelAvatarBtn.addEventListener('click', () => avatarModalBg.classList.remove('open'));
 
-confirmAvatarBtn.addEventListener('click', () => {
+// 画像をCanvas経由で縮小・圧縮する（保存容量対策）
+function resizeImageDataUrl(dataUrl, maxSize, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width;
+      let h = img.height;
+      if (w > h && w > maxSize) {
+        h = Math.round(h * (maxSize / w));
+        w = maxSize;
+      } else if (h >= w && h > maxSize) {
+        w = Math.round(w * (maxSize / h));
+        h = maxSize;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+confirmAvatarBtn.addEventListener('click', async () => {
   // ビューポート220pxに対する相対位置を % で保存（表示側で再現するため）
   const viewportSize = 220;
   const offsetXPercent = 50 - (cropState.offsetXpx / viewportSize) * 100 * (100 / cropState.zoom);
   const offsetYPercent = 50 - (cropState.offsetYpx / viewportSize) * 100 * (100 / cropState.zoom);
-  editingAvatar = {
-    src: cropState.src,
-    offsetX: Math.max(0, Math.min(100, offsetXPercent)),
-    offsetY: Math.max(0, Math.min(100, offsetYPercent)),
-    zoom: cropState.zoom
-  };
-  renderAvatarPreview();
-  avatarModalBg.classList.remove('open');
+
+  confirmAvatarBtn.disabled = true;
+  confirmAvatarBtn.textContent = '処理中...';
+  try {
+    // 保存容量対策：最大400pxまで縮小し、JPEG品質0.8で圧縮してから保存する
+    const resizedSrc = await resizeImageDataUrl(cropState.src, 400, 0.8);
+    editingAvatar = {
+      src: resizedSrc,
+      offsetX: Math.max(0, Math.min(100, offsetXPercent)),
+      offsetY: Math.max(0, Math.min(100, offsetYPercent)),
+      zoom: cropState.zoom
+    };
+    renderAvatarPreview();
+    avatarModalBg.classList.remove('open');
+  } catch (e) {
+    alert('画像の処理に失敗しました。別の画像でお試しください。');
+  } finally {
+    confirmAvatarBtn.disabled = false;
+    confirmAvatarBtn.textContent = '決定';
+  }
 });
 
 deleteRoomBtn.addEventListener('click', () => {
