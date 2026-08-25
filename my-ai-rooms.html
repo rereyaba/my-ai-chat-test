@@ -1223,16 +1223,102 @@ textInput.addEventListener('keydown', (e) => {
 sendBtn.addEventListener('click', sendMessage);
 
 function showTyping() {
-  const el = document.createElement('div');
-  el.className = 'typing';
-  el.id = 'typingIndicator';
-  el.innerHTML = '<span></span><span></span><span></span>';
-  chatEl.appendChild(el);
+  const wrap = document.createElement('div');
+  wrap.id = 'typingIndicator';
+  wrap.style.cssText = 'align-self:flex-start; display:flex; flex-direction:column; gap:2px;';
+  const dots = document.createElement('div');
+  dots.className = 'typing';
+  dots.innerHTML = '<span></span><span></span><span></span>';
+  const note = document.createElement('div');
+  note.id = 'typingNote';
+  note.style.cssText = 'font-size:11px; color:var(--text-dim); padding:0 16px 4px;';
+  wrap.appendChild(dots);
+  wrap.appendChild(note);
+  chatEl.appendChild(wrap);
   scrollToBottom();
+}
+function setTypingNote(text) {
+  const n = document.getElementById('typingNote');
+  if (n) { n.textContent = text || ''; scrollToBottom(); }
 }
 function hideTyping() {
   const el = document.getElementById('typingIndicator');
   if (el) el.remove();
+}
+
+// --- 自動リトライ ---------------------------------------------
+// 「混んでいて返ってこない」時に、勝手にあきらめず待って投げ直す。
+// 遅くなってもいいので、発言が消えないことを優先する。
+const RETRY_WAITS_BUSY   = [3000, 8000, 15000, 30000, 60000]; // 混雑・サーバー障害
+const RETRY_WAITS_FILTER = [2000, 4000];                      // フィルター（数回だけ試す）
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function callGeminiWithRetry(room, onNote) {
+  let attempt = 0;
+  while (true) {
+    try {
+      const r = await callGeminiAPI(room);
+      if (onNote) onNote('');
+      return r;
+    } catch (err) {
+      // fetch自体が失敗（電波が切れた等）は 'network' 扱い
+      const kind = err.kind || (err instanceof TypeError ? 'busy' : 'fatal');
+      const waits = kind === 'busy' ? RETRY_WAITS_BUSY
+                  : kind === 'filter' ? RETRY_WAITS_FILTER
+                  : null;
+      if (!waits || attempt >= waits.length) throw err;
+      const wait = waits[attempt];
+      attempt++;
+      const label = kind === 'filter'
+        ? `ブロックされました。${Math.round(wait/1000)}秒後に再試行 (${attempt}/${waits.length})`
+        : `混み合っています。${Math.round(wait/1000)}秒後に自動で再試行 (${attempt}/${waits.length})`;
+      if (onNote) onNote(label);
+      await sleep(wait);
+    }
+  }
+}
+
+// 失敗しても発言は消さない。再送ボタンを出すだけ。
+function showRetryBar(room, err) {
+  const el = document.createElement('div');
+  el.className = 'msg error';
+  el.id = 'retryBar';
+  const txt = document.createElement('div');
+  txt.textContent = 'エラー: ' + err.message;
+  txt.style.marginBottom = '6px';
+  el.appendChild(txt);
+  const hint = document.createElement('div');
+  hint.textContent = 'あなたの発言は消していません。そのまま再送できます。';
+  hint.style.cssText = 'font-size:11px; color:var(--text-dim); margin-bottom:8px;';
+  el.appendChild(hint);
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-secondary';
+  btn.textContent = '🔁 再送する';
+  btn.style.cssText = 'padding:8px 14px; font-size:13px;';
+  btn.addEventListener('click', () => { el.remove(); resendLast(room); });
+  el.appendChild(btn);
+  chatEl.appendChild(el);
+  scrollToBottom();
+}
+
+// 履歴の末尾（＝送信済みのユーザー発言）に対して、返答だけ取り直す
+async function resendLast(room) {
+  sendBtn.disabled = true;
+  showTyping();
+  try {
+    const result = await callGeminiWithRetry(room, setTypingNote);
+    hideTyping();
+    applyApiResult(room, result);
+    saveStore();
+    renderRoom();
+  } catch (err) {
+    hideTyping();
+    renderRoom();
+    showRetryBar(room, err);
+  } finally {
+    sendBtn.disabled = false;
+  }
 }
 
 function genMsgId() { return 'msg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7); }
@@ -1258,23 +1344,17 @@ async function sendMessage() {
   showTyping();
 
   try {
-    const result = await callGeminiAPI(room);
+    const result = await callGeminiWithRetry(room, setTypingNote);
     hideTyping();
     applyApiResult(room, result);
     saveStore();
     renderRoom();
   } catch (err) {
     hideTyping();
-    // 送信失敗：この発言を履歴から取り消す（なかったことにする）
-    const idx = room.messages.findIndex(m => m.id === userMsg.id);
-    if (idx !== -1) room.messages.splice(idx, 1);
+    // 送信失敗：発言は履歴に残したまま、再送ボタンを出す（取り消さない）
     saveStore();
     renderRoom();
-    const el = document.createElement('div');
-    el.className = 'msg error';
-    el.textContent = 'エラー: ' + err.message + '（送信は取り消されました。もう一度お試しください）';
-    chatEl.appendChild(el);
-    scrollToBottom();
+    showRetryBar(room, err);
   } finally {
     sendBtn.disabled = false;
   }
@@ -1304,12 +1384,17 @@ async function regenerateMessage(room, idx) {
   if (!target || target.role === 'user') return;
   sendBtn.disabled = true;
   showTyping();
+  const historyBackup = room.messages;
   try {
     // 対象より後ろの履歴を一時的に切り離してAPIに送る（対象自体は含めない）
-    const historyBackup = room.messages;
     room.messages = room.messages.slice(0, idx);
-    const result = await callGeminiAPI(room);
-    room.messages = historyBackup;
+    let result;
+    try {
+      result = await callGeminiWithRetry(room, setTypingNote);
+    } finally {
+      // 失敗しても必ず履歴を戻す（戻し忘れると以降の会話が消える）
+      room.messages = historyBackup;
+    }
     hideTyping();
 
     const pricing = PRICING[room.apiModel] || PRICING['gemini-3.1-pro-preview'];
@@ -1335,8 +1420,10 @@ async function regenerateMessage(room, idx) {
     saveStore();
     renderRoom();
   } catch (err) {
+    room.messages = historyBackup;
     hideTyping();
-    renderNotice('再生成に失敗しました: ' + err.message);
+    renderRoom();
+    renderNotice('再生成に失敗しました: ' + err.message + '（元の返答はそのまま残っています）');
   } finally {
     sendBtn.disabled = false;
   }
@@ -1408,25 +1495,35 @@ async function callGeminiAPI(room) {
       const errJson = await res.json();
       if (errJson.error && errJson.error.message) msg += ' - ' + errJson.error.message;
     } catch (e) {}
-    throw new Error(msg);
+    const e = new Error(msg);
+    e.status = res.status;
+    // 429=混雑/上限, 5xx=サーバー側の一時障害 → 自動リトライ対象
+    e.kind = (res.status === 429 || res.status >= 500) ? 'busy' : 'fatal';
+    throw e;
   }
 
   const data = await res.json();
 
   if (!data.candidates || data.candidates.length === 0) {
     const reason = data.promptFeedback && data.promptFeedback.blockReason;
-    throw new Error(reason ? `応答がブロックされました (${reason})` : '応答が空でした');
+    const e = new Error(reason ? `応答がブロックされました (${reason})` : '応答が空でした');
+    e.kind = 'filter';
+    throw e;
   }
 
   const candidate = data.candidates[0];
   if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'BLOCKED') {
-    throw new Error('セーフティフィルターにより応答がブロックされました');
+    const e = new Error('セーフティフィルターにより応答がブロックされました');
+    e.kind = 'filter';
+    throw e;
   }
 
   const parts = candidate.content && candidate.content.parts;
   if (!parts || parts.length === 0) {
     const reason = candidate.finishReason ? `(finishReason: ${candidate.finishReason})` : '';
-    throw new Error('応答の中身が取得できませんでした ' + reason);
+    const e = new Error('応答の中身が取得できませんでした ' + reason);
+    e.kind = 'filter';
+    throw e;
   }
 
   return {
